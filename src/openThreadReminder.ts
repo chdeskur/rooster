@@ -1,7 +1,7 @@
 import { App } from "@slack/bolt";
 import { config } from "./config";
 import { getAllOncallEngineers } from "./incidentIo";
-import { getOpenIssues, PylonIssue } from "./pylon";
+import { getOpenIssues, getUnrespondedIssues, PylonIssue } from "./pylon";
 
 const CUSTOMER_ALERTS_CHANNEL = "customer-alerts";
 
@@ -47,20 +47,27 @@ function getSlackThreadUrl(channelId: string, messageTs: string): string {
 function formatIssue(issue: PylonIssue, index: number): string {
   const stateLabel = formatState(issue.state);
 
-  // build the link - prefer slack thread, fall back to issue number
+  // build the link - prefer slack, fall back to pylon link
   let link: string;
   if (issue.slack?.channel_id && issue.slack?.message_ts) {
-    const slackUrl = getSlackThreadUrl(issue.slack.channel_id, issue.slack.message_ts);
+    const ts = issue.slack.thread_ts || issue.slack.message_ts;
+    const slackUrl = getSlackThreadUrl(issue.slack.channel_id, ts);
     link = `<${slackUrl}|#${issue.number}>`;
+  } else if (issue.link) {
+    link = `<${issue.link}|#${issue.number}>`;
   } else {
     link = `#${issue.number}`;
   }
 
   // only include account name if we have one
-  const accountName = issue.account?.name || issue.requester?.email;
+  const accountName = issue.account?.name;
   const accountPart = accountName ? ` — ${accountName}` : "";
 
-  return `  ${index + 1}. ${link}${accountPart} — ${issue.title} (${stateLabel})`;
+  // only include title if we have one
+  const title = issue.title?.trim();
+  const titlePart = title ? ` — ${title}` : "";
+
+  return `  ${index + 1}. ${link}${accountPart}${titlePart} (${stateLabel})`;
 }
 
 /**
@@ -93,6 +100,22 @@ export async function getOpenThreadReminderMessage(): Promise<string | null> {
 }
 
 /**
+ * builds the message for unresponded issues (threads with no response at all)
+ * returns null if no unresponded issues
+ */
+export async function getUnrespondedThreadsMessage(): Promise<string | null> {
+  const unrespondedIssues = await getUnrespondedIssues();
+
+  if (unrespondedIssues.length === 0) {
+    return null;
+  }
+
+  const issueList = unrespondedIssues.map((issue, index) => formatIssue(issue, index)).join("\n");
+
+  return `🐓 *unresponded threads*\n\nthe following ${unrespondedIssues.length} thread(s) from today have not been responded to:\n\n${issueList}`;
+}
+
+/**
  * sends the end-of-day reminder with open issues to customer-alerts
  */
 export async function sendOpenThreadReminder(app: App): Promise<void> {
@@ -122,4 +145,41 @@ export async function sendOpenThreadReminder(app: App): Promise<void> {
   });
 
   console.log(`sent reminder for ${openIssues.length} open issue(s).`);
+}
+
+/**
+ * sends the unresponded threads message to customer-alerts
+ * returns true if message was sent, false if no unresponded threads
+ */
+export async function sendUnrespondedThreadsReminder(app: App, tagOncall: boolean = false): Promise<boolean> {
+  const customerAlertsChannelId = await getCustomerAlertsChannelId(app);
+  const unrespondedIssues = await getUnrespondedIssues();
+
+  if (unrespondedIssues.length === 0) {
+    console.log("no unresponded threads found. skipping message.");
+    return false;
+  }
+
+  const issueList = unrespondedIssues.map((issue, index) => formatIssue(issue, index)).join("\n");
+
+  let oncallMention = "";
+  if (tagOncall) {
+    const oncallEngineerIds = await getAllOncallEngineers();
+    oncallMention =
+      oncallEngineerIds.length > 0
+        ? oncallEngineerIds.map((id) => `<@${id}>`).join(" ") + " "
+        : "";
+  }
+
+  const message = `🐓 *unresponded threads*\n\n${oncallMention}the following ${unrespondedIssues.length} thread(s) from today have not been responded to:\n\n${issueList}`;
+
+  await app.client.chat.postMessage({
+    token: config.slack.botToken,
+    channel: customerAlertsChannelId,
+    text: message,
+    unfurl_links: false,
+  });
+
+  console.log(`sent unresponded threads message for ${unrespondedIssues.length} issue(s).`);
+  return true;
 }

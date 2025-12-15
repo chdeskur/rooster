@@ -2,8 +2,9 @@ import { App } from "@slack/bolt";
 import cron from "node-cron";
 import { config } from "./config";
 import {
-  getOpenThreadReminderMessage,
+  getUnrespondedThreadsMessage,
   sendOpenThreadReminder,
+  sendUnrespondedThreadsReminder,
 } from "./openThreadReminder";
 
 const app = new App({
@@ -29,16 +30,28 @@ app.command("/rooster-status", async ({ ack, respond }) => {
   await respond("🐓 rooster is alive and watching for open threads!");
 });
 
-// manual trigger for testing
-app.command("/rooster-check", async ({ ack, respond }) => {
+// manual trigger for checking unresponded threads from today
+// use --channel to send to #customer-alerts, otherwise ephemeral
+// use --remind to tag on-call engineers (implies --channel)
+app.command("/rooster-check", async ({ ack, respond, command }) => {
   await ack();
-  await respond("🐓 checking open issues...");
+  const tagOncall = command.text?.includes("--remind");
+  const sendToChannel = tagOncall || command.text?.includes("--channel");
+
+  await respond("🐓 checking unresponded threads from today...");
   try {
-    const message = await getOpenThreadReminderMessage();
-    if (message) {
-      await respond(message);
+    if (sendToChannel) {
+      const sent = await sendUnrespondedThreadsReminder(app, tagOncall);
+      if (!sent) {
+        await respond("✅ no unresponded threads found!");
+      }
     } else {
-      await respond("✅ no open issues found!");
+      const message = await getUnrespondedThreadsMessage();
+      if (message) {
+        await respond(message);
+      } else {
+        await respond("✅ no unresponded threads found!");
+      }
     }
   } catch (error) {
     console.error("error during manual check:", error);
