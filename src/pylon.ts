@@ -37,15 +37,16 @@ interface PylonSearchResponse {
 const OPEN_STATES = ["new", "waiting_on_you", "waiting_on_customer", "on_hold"];
 
 /**
- * fetches issues from pylon created today
+ * fetches issues from pylon created within the last N days
  */
-async function fetchIssuesToday(): Promise<PylonIssue[]> {
+async function fetchIssues(days: number = 1): Promise<PylonIssue[]> {
   const now = new Date();
-  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startTime = new Date(startOfToday.getTime() - (days - 1) * 24 * 60 * 60 * 1000);
+  const endOfDay = new Date(startOfToday.getTime() + 24 * 60 * 60 * 1000);
 
   const url = new URL(`${PYLON_API_BASE}/issues`);
-  url.searchParams.set("start_time", startOfDay.toISOString());
+  url.searchParams.set("start_time", startTime.toISOString());
   url.searchParams.set("end_time", endOfDay.toISOString());
 
   const response = await fetch(url.toString(), {
@@ -67,25 +68,25 @@ async function fetchIssuesToday(): Promise<PylonIssue[]> {
 }
 
 /**
- * fetches open issues from pylon created today
+ * fetches open issues from pylon created within the last N days
  */
-export async function getOpenIssues(): Promise<PylonIssue[]> {
-  const issues = await fetchIssuesToday();
+export async function getOpenIssues(days: number = 1): Promise<PylonIssue[]> {
+  const issues = await fetchIssues(days);
   return issues.filter((issue) => OPEN_STATES.includes(issue.state));
 }
 
 /**
- * fetches issues from today that have not been responded to at all
+ * fetches issues from the last N days that have not been responded to at all
  * filters for state = "new" AND first_response_time = null
  * (issues with first_response_time set are customer replies to Fern-initiated threads)
  */
-export async function getUnrespondedIssues(): Promise<PylonIssue[]> {
-  const issues = await fetchIssuesToday();
+export async function getUnrespondedIssues(days: number = 1): Promise<PylonIssue[]> {
+  const issues = await fetchIssues(days);
   const newStateIssues = issues.filter((issue) => issue.state === "new");
   const trulyUnresponded = newStateIssues.filter((issue) => issue.first_response_time == null);
 
   console.log(`\n=== UNRESPONDED ISSUES DEBUG ===`);
-  console.log(`Total issues today: ${issues.length}`);
+  console.log(`Total issues (last ${days} day(s)): ${issues.length}`);
   console.log(`Issues with state "new": ${newStateIssues.length}`);
   console.log(`Truly unresponded (no first_response_time): ${trulyUnresponded.length}`);
 

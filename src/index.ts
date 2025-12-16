@@ -24,43 +24,62 @@ cron.schedule("0 17 * * 1-5", async () => {
   }
 });
 
-// health check command
-app.command("/rooster-status", async ({ ack, respond }) => {
+// single rooster command with subcommands
+app.command("/rooster", async ({ ack, respond, command }) => {
   await ack();
-  await respond("🐓 rooster is alive and watching for open threads!");
-});
+  const args = command.text?.trim().split(/\s+/) || [];
+  const subcommand = args[0]?.toLowerCase();
 
-// manual trigger for checking unresponded threads from today
-// use --channel to send to #customer-alerts, otherwise ephemeral
-// use --remind to tag on-call engineers (implies --channel)
-app.command("/rooster-check", async ({ ack, respond, command }) => {
-  await ack();
-  const tagOncall = command.text?.includes("--remind");
-  const sendToChannel = tagOncall || command.text?.includes("--channel");
+  switch (subcommand) {
+    case "status":
+      await respond("rooster is alive and watching for open threads!");
+      break;
 
-  await respond("🐓 checking unresponded threads from today...");
-  try {
-    if (sendToChannel) {
-      const sent = await sendUnrespondedThreadsReminder(app, tagOncall);
-      if (!sent) {
-        await respond("✅ no unresponded threads found!");
+    case "check": {
+      const tagOncall = args.includes("--remind");
+      const sendToChannel = tagOncall || args.includes("--channel");
+
+      // parse days argument (first numeric arg after "check")
+      const daysArg = args.slice(1).find((arg) => /^\d+$/.test(arg));
+      const days = daysArg ? Math.max(1, parseInt(daysArg, 10)) : 1;
+      const timeframe = days === 1 ? "today" : `the last ${days} days`;
+
+      await respond(`checking unresponded threads from ${timeframe}...`);
+      try {
+        if (sendToChannel) {
+          const sent = await sendUnrespondedThreadsReminder(app, tagOncall, days);
+          if (!sent) {
+            await respond("✅ no unresponded threads found!");
+          }
+        } else {
+          const message = await getUnrespondedThreadsMessage(days);
+          if (message) {
+            await respond(message);
+          } else {
+            await respond("✅ no unresponded threads found!");
+          }
+        }
+      } catch (error) {
+        console.error("error during manual check:", error);
+        await respond("❌ error running the check. see logs for details.");
       }
-    } else {
-      const message = await getUnrespondedThreadsMessage();
-      if (message) {
-        await respond(message);
-      } else {
-        await respond("✅ no unresponded threads found!");
-      }
+      break;
     }
-  } catch (error) {
-    console.error("error during manual check:", error);
-    await respond("❌ error running the check. see logs for details.");
+
+    default:
+      await respond(
+        "available commands:\n" +
+          "• `/rooster status` - check if rooster is running\n" +
+          "• `/rooster check [days]` - check for unresponded threads (default: 1 day)\n" +
+          "  - add a number for more days, e.g. `/rooster check 3`\n" +
+          "  - add `--channel` to post to channel\n" +
+          "  - add `--remind` to tag on-call"
+      );
   }
 });
 
 (async () => {
   await app.start();
-  console.log("🐓 rooster is running!");
+  console.log("rooster is running!");
   console.log("scheduled: open thread reminder at 5 PM on weekdays");
 })();

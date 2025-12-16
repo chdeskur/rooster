@@ -95,23 +95,24 @@ export async function getOpenThreadReminderMessage(): Promise<string | null> {
 
   const issueList = openIssues.map((issue, index) => formatIssue(issue, index)).join("\n");
 
-  return `🐓 *end of day reminder*\n\nthe following ${openIssues.length} issue(s) from today are still open:\n\n${issueList}\n\nplease review and resolve these issues.`;
+  return `*end of day reminder*\n\nthe following ${openIssues.length} issue(s) from today are still open:\n\n${issueList}\n\nplease review and resolve these issues.`;
 }
 
 /**
  * builds the message for unresponded issues (threads with no response at all)
  * returns null if no unresponded issues
  */
-export async function getUnrespondedThreadsMessage(): Promise<string | null> {
-  const unrespondedIssues = await getUnrespondedIssues();
+export async function getUnrespondedThreadsMessage(days: number = 1): Promise<string | null> {
+  const unrespondedIssues = await getUnrespondedIssues(days);
 
   if (unrespondedIssues.length === 0) {
     return null;
   }
 
   const issueList = unrespondedIssues.map((issue, index) => formatIssue(issue, index)).join("\n");
+  const timeframe = days === 1 ? "today" : `the last ${days} days`;
 
-  return `🐓 *unresponded threads*\n\nthe following ${unrespondedIssues.length} thread(s) from today have not been responded to:\n\n${issueList}`;
+  return `*unresponded threads*\n\nthe following ${unrespondedIssues.length} thread(s) from ${timeframe} have not been responded to:\n\n${issueList}`;
 }
 
 /**
@@ -134,7 +135,7 @@ export async function sendOpenThreadReminder(app: App): Promise<void> {
       ? oncallEngineerIds.map((id) => `<@${id}>`).join(" ") + " "
       : "on-call engineers ";
 
-  const message = `🐓 *end of day reminder*\n\n${oncallMention}the following ${openIssues.length} issue(s) from today are still open:\n\n${issueList}\n\nplease review and resolve these issues.`;
+  const message = `*end of day reminder*\n\n${oncallMention}the following ${openIssues.length} issue(s) from today are still open:\n\n${issueList}\n\nplease review and resolve these issues.`;
 
   await app.client.chat.postMessage({
     token: config.slack.botToken,
@@ -150,9 +151,9 @@ export async function sendOpenThreadReminder(app: App): Promise<void> {
  * sends the unresponded threads message to customer-alerts
  * returns true if message was sent, false if no unresponded threads
  */
-export async function sendUnrespondedThreadsReminder(app: App, tagOncall: boolean = false): Promise<boolean> {
+export async function sendUnrespondedThreadsReminder(app: App, tagOncall: boolean = false, days: number = 1): Promise<boolean> {
   const customerAlertsChannelId = await getCustomerAlertsChannelId(app);
-  const unrespondedIssues = await getUnrespondedIssues();
+  const unrespondedIssues = await getUnrespondedIssues(days);
 
   if (unrespondedIssues.length === 0) {
     console.log("no unresponded threads found. skipping message.");
@@ -170,7 +171,8 @@ export async function sendUnrespondedThreadsReminder(app: App, tagOncall: boolea
         : "";
   }
 
-  const message = `🐓 *unresponded threads*\n\n${oncallMention}the following ${unrespondedIssues.length} thread(s) from today have not been responded to:\n\n${issueList}`;
+  const timeframe = days === 1 ? "today" : `the last ${days} days`;
+  const message = `*unresponded threads*\n\n${oncallMention}the following ${unrespondedIssues.length} thread(s) from ${timeframe} have not been responded to:\n\n${issueList}`;
 
   await app.client.chat.postMessage({
     token: config.slack.botToken,
