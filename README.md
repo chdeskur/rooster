@@ -23,8 +23,11 @@ pnpm run dev
 ## slack commands
 
 - `/rooster status` - check if rooster is running
-- `/rooster check [days]` - manually check for unresponded threads (default: 1 day)
+- `/rooster check [days]` - check for issues (default: 1 day)
+  - by default, shows both new (unassigned) and waiting-on-you issues in separate sections
   - e.g. `/rooster check 3` checks the last 3 days
+  - add `--new` to show only new (unassigned) issues
+  - add `--open` to show only waiting-on-you issues
   - add `--channel` to post results to #customer-alerts
   - add `--remind` to tag on-call engineers (implies --channel)
 
